@@ -71,29 +71,39 @@ public class SecurityConfig {
                 )
 
                 .authorizeHttpRequests(auth -> auth
-                        .requestMatchers(
-                                "/swagger-ui/**",
-                                "/v3/api-docs/**",
-                                "/swagger-ui.html"
-                        ).permitAll()
-                        .requestMatchers("/actuator/health", "/actuator/prometheus")
-                        .permitAll()
-                        .requestMatchers(
-                                HttpMethod.GET,
-                                "/api/users/me/reviews"  // 내 리뷰 목록 조회 - 인증 필요
-                        ).authenticated()
-                        .requestMatchers(
-                                "/api/users/me/**"  // 내 정보 조회/수정/탈퇴 및 하위 API는 로그인 사용자만 접근 가능
-                        ).authenticated()
-                        .requestMatchers(
-                                "/api/notifications/**" // 알람 관련 API는 로그인 사용자만 접근 가능
-                        ).authenticated()
 
+                        // ===== 로그인 필요 =====
                         .requestMatchers(
                                 HttpMethod.POST,
                                 "/api/images/upload")
                         .authenticated()
+                        .requestMatchers(
+                                "/api/notifications/**", // 알람 관련 API는 로그인 사용자만 접근 가능
+                                "/api/users/me/**"  // 내 정보 조회/수정/탈퇴 및 하위 API는 로그인 사용자만 접근 가능
+                        ).authenticated()
 
+                        // ===== 역할 권한 필요 =====
+                        .requestMatchers(
+                                "/api/reservations/**",
+                                "/api/payments/**"
+                        ).hasRole("USER")
+                        .requestMatchers(
+                                "/api/admin/**"
+                        ).hasRole("ADMIN")
+                        .requestMatchers(
+                                "/api/host/**",
+                                "/api/timedeals/host/**"
+                        ).hasRole("HOST")
+
+                        // ===== 비회원 공개 (인증 불필요) =====
+                        .requestMatchers(
+                                "/swagger-ui/**",
+                                "/v3/api-docs/**",
+                                "/swagger-ui.html",
+                                "/actuator/health",
+                                "/actuator/prometheus"
+
+                        ).permitAll()
                         .requestMatchers(
                                 "/api/auth/signup",
                                 "/api/auth/signup/host",
@@ -101,31 +111,26 @@ public class SecurityConfig {
                                 "/api/auth/logout",
                                 "/api/auth/refresh",
                                 "/api/auth/check/email",
-                                "/api/auth/check/nickname",
-                                "/api/users/**",
-                                "/api/campings/**"
+                                "/api/auth/check/nickname"
                         ).permitAll()
                         .requestMatchers(
-                                "/ws/**",
-                                "/chat-test.html"
+                                "/api/campings/search" // 캠핑장 검색
                         ).permitAll()
                         .requestMatchers(
                                 HttpMethod.GET,
                                 "/api/campings/*/reviews"  // 리뷰 목록 조회 비인증 허용
                         ).permitAll()
+                        .requestMatchers(
+                                HttpMethod.GET,
+                                "/api/timedeals/**" // 타임딜
+                        ).permitAll()
+                        .requestMatchers(
+                                "/api/users/**",
+                                "/api/campings/**", // 리뷰 작성, 삭제 권한 확인 필요
+                                "/ws/**",
+                                "/chat-test.html"
+                        ).permitAll()
 
-                        //예약 시
-                        .requestMatchers("/api/reservations/**").hasRole("USER")
-                        .requestMatchers("/api/payments/**").hasRole("USER")
-
-                        // 캠핑장 검색
-                        .requestMatchers("/api/campings/search").permitAll()
-
-                        .requestMatchers("/api/timedeals/host/**").hasRole("HOST")
-                        .requestMatchers(HttpMethod.GET, "/api/timedeals/**").permitAll()
-
-                        .requestMatchers("/api/admin/**").hasRole("ADMIN")
-                        .requestMatchers("/api/host/**").hasRole("HOST")
                         .anyRequest().authenticated()
                 )
                 .addFilterBefore(
