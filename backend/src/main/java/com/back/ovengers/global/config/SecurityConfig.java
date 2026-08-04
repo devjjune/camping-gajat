@@ -1,6 +1,8 @@
 package com.back.ovengers.global.config;
 
 
+import com.back.ovengers.global.exception.ErrorCode;
+import com.back.ovengers.global.response.ApiResponse;
 import com.back.ovengers.global.security.JwtFilter;
 import jakarta.servlet.http.HttpServletResponse;
 import lombok.RequiredArgsConstructor;
@@ -17,8 +19,11 @@ import org.springframework.security.web.SecurityFilterChain;
 import org.springframework.security.web.authentication.UsernamePasswordAuthenticationFilter;
 import org.springframework.web.cors.CorsConfiguration;
 import org.springframework.web.cors.UrlBasedCorsConfigurationSource;
+import tools.jackson.databind.ObjectMapper;
 
+import java.io.IOException;
 import java.util.List;
+import java.util.Map;
 
 @Configuration
 @EnableWebSecurity
@@ -26,6 +31,7 @@ import java.util.List;
 public class SecurityConfig {
 
     private final JwtFilter jwtFilter;
+    private final ObjectMapper objectMapper;
 
     @Bean
     public PasswordEncoder passwordEncoder() {
@@ -50,24 +56,14 @@ public class SecurityConfig {
                         )
                 )
                 .exceptionHandling(exception -> exception
-
                         // 인증 실패(미로그인, 토큰 없음 등) → 401 Unauthorized
-                        .authenticationEntryPoint((request, response, authException) -> {
-                            response.setStatus(HttpServletResponse.SC_UNAUTHORIZED);
-                            response.setContentType("application/json;charset=UTF-8");
-                            response.getWriter().write(
-                                    "{\"message\":\"ACCESS_TOKEN_MISSING\",\"data\":\"Access Token이 없습니다.\"}"
-                            );
-                        })
-
+                        .authenticationEntryPoint((request, response, authException) ->
+                                writeErrorResponse(response, ErrorCode.ACCESS_TOKEN_MISSING)
+                        )
                         // 인가 실패(권한 부족) → 403 Forbidden
-                        .accessDeniedHandler((request, response, accessDeniedException) -> {
-                            response.setStatus(HttpServletResponse.SC_FORBIDDEN);
-                            response.setContentType("application/json;charset=UTF-8");
-                            response.getWriter().write(
-                                    "{\"message\":\"FORBIDDEN\",\"data\":\"접근 권한이 없습니다.\"}"
-                            );
-                        })
+                        .accessDeniedHandler((request, response, accessDeniedException) ->
+                                writeErrorResponse(response, ErrorCode.FORBIDDEN)
+                        )
                 )
 
                 .authorizeHttpRequests(auth -> auth
@@ -155,5 +151,17 @@ public class SecurityConfig {
         source.registerCorsConfiguration("/swagger-ui/**", configuration);
         source.registerCorsConfiguration("/v3/api-docs/**", configuration);
         return source;
+    }
+
+    private void writeErrorResponse(
+            HttpServletResponse response,
+            ErrorCode errorCode
+    ) throws IOException {
+        response.setStatus(errorCode.getStatus().value());
+        response.setContentType("application/json;charset=UTF-8");
+        objectMapper.writeValue(
+                response.getWriter(),
+                new ApiResponse<>(errorCode.name(), errorCode.getMessage())
+                );
     }
 }
