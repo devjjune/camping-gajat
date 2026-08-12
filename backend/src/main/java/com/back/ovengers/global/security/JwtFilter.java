@@ -5,6 +5,7 @@ import com.back.ovengers.domain.user.repository.UserRepository;
 import com.back.ovengers.global.exception.CustomException;
 import com.back.ovengers.global.exception.ErrorCode;
 import com.back.ovengers.global.util.CookieUtil;
+import io.jsonwebtoken.Claims;
 import jakarta.servlet.FilterChain;
 import jakarta.servlet.ServletException;
 import jakarta.servlet.http.HttpServletRequest;
@@ -51,42 +52,39 @@ public class JwtFilter extends OncePerRequestFilter {
                 return;
             }
 
-            // 서명 검증 + 만료 시간 체크
-            // 만료 시 CustomException(ACCESS_TOKEN_EXPIRED) 발생
-            if (jwtProvider.validateToken(token)) {
+            Claims claims = jwtProvider.parseClaims(token);
+            Long userId = jwtProvider.getUserId(claims);
+            String role = jwtProvider.getRole(claims);
 
-                Long userId = jwtProvider.getUserId(token);
-                String role = jwtProvider.getRole(token);
+            // DB 조회 제거 — 토큰에 Role이 있으므로 불필요
+            // 단, soft delete 체크는 DB 조회가 필요하므로 유지
+            User user = userRepository.findById(userId)
+                    .orElseThrow(() -> new CustomException(ErrorCode.USER_NOT_FOUND));
 
-                // DB 조회 제거 — 토큰에 Role이 있으므로 불필요
-                // 단, soft delete 체크는 DB 조회가 필요하므로 유지
-                User user = userRepository.findById(userId)
-                        .orElseThrow(() -> new CustomException(ErrorCode.USER_NOT_FOUND));
-
-                if (user.getDeletedAt() != null) {
-                    throw new CustomException(ErrorCode.ALREADY_DELETED);
-                }
-
-                UsernamePasswordAuthenticationToken auth =
-                        new UsernamePasswordAuthenticationToken(
-                                user,
-                                null,
-                                List.of(new SimpleGrantedAuthority("ROLE_" + role))
-                        );
-
-                auth.setDetails(
-                        new WebAuthenticationDetailsSource()
-                                .buildDetails(request)
-                );
-
-                SecurityContextHolder
-                        .getContext()
-                        .setAuthentication(auth);
+            if (user.getDeletedAt() != null) {
+                throw new CustomException(ErrorCode.ALREADY_DELETED);
             }
+
+            UsernamePasswordAuthenticationToken auth =
+                    new UsernamePasswordAuthenticationToken(
+                            user,
+                            null,
+                            List.of(new SimpleGrantedAuthority("ROLE_" + role))
+                    );
+
+            auth.setDetails(
+                    new WebAuthenticationDetailsSource()
+                            .buildDetails(request)
+            );
+
+            SecurityContextHolder
+                    .getContext()
+                    .setAuthentication(auth);
 
             filterChain.doFilter(request, response);
 
-        } catch (Exception e) {
+        } catch (
+                Exception e) {
             // 필터에서 발생한 모든 예외를 GlobalExceptionHandler로 위임
             // CustomException → handleCustomException()
             // 그 외 예외 → handleException()
