@@ -5,6 +5,7 @@ import com.back.ovengers.domain.user.repository.UserRepository;
 import com.back.ovengers.global.exception.CustomException;
 import com.back.ovengers.global.exception.ErrorCode;
 import com.back.ovengers.global.security.JwtProvider;
+import io.jsonwebtoken.Claims;
 import lombok.RequiredArgsConstructor;
 import org.springframework.messaging.Message;
 import org.springframework.messaging.MessageChannel;
@@ -46,11 +47,9 @@ public class JwtChannelInterceptor implements ChannelInterceptor {
 
             String token = authHeader.substring(7);
 
-            // 토큰 검증
-            jwtProvider.validateToken(token);
-
-            // userId 추출
-            Long userId = jwtProvider.getUserId(token);
+            // 토큰 검증 + userId 추출
+            Claims claims = jwtProvider.parseClaims(token);
+            Long userId = jwtProvider.getUserId(claims);
 
             User user = userRepository.findById(userId)
                     .orElseThrow(() ->

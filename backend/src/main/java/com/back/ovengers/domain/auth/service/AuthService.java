@@ -12,6 +12,7 @@ import com.back.ovengers.global.exception.CustomException;
 import com.back.ovengers.global.exception.ErrorCode;
 import com.back.ovengers.global.security.JwtProvider;
 import com.back.ovengers.global.util.CookieUtil;
+import io.jsonwebtoken.Claims;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import lombok.RequiredArgsConstructor;
@@ -155,8 +156,9 @@ public class AuthService {
         // 서명 검증 + 만료 시간 체크
         jwtProvider.validateRefreshToken(refreshToken);
 
-        Long userId = jwtProvider.getUserId(refreshToken);
-        String role = jwtProvider.getRole(refreshToken);
+        Claims claims = jwtProvider.parseClaims(refreshToken);
+        Long userId = jwtProvider.getUserId(claims);
+        String role = jwtProvider.getRole(claims);
 
         // DB에서 토큰 일치 여부 + 만료 시간 확인
         refreshTokenService.validate(userId, refreshToken);
@@ -171,7 +173,8 @@ public class AuthService {
         // Refresh Token에서 userId 추출하여 DB 삭제
         cookieUtil.getRefreshToken(request).ifPresent(refreshToken -> {
             try {
-                Long userId = jwtProvider.getUserId(refreshToken);
+                Claims claims = jwtProvider.parseClaims(refreshToken);
+                Long userId = jwtProvider.getUserId(claims);
                 refreshTokenService.delete(userId);
             } catch (Exception e) {
                 // 토큰이 이미 만료되었거나 유효하지 않아도 쿠키는 삭제
