@@ -7,6 +7,7 @@ import com.back.ovengers.domain.payment.dto.PaymentSummaryResponse;
 import com.back.ovengers.domain.payment.entity.Payment;
 import com.back.ovengers.domain.payment.entity.PaymentStatus;
 import com.back.ovengers.domain.payment.repository.PaymentRepository;
+import com.back.ovengers.domain.payment.service.PaymentCancelService;
 import com.back.ovengers.domain.reservation.dto.*;
 import com.back.ovengers.domain.reservation.dto.*;
 import com.back.ovengers.domain.reservation.entity.Reservation;
@@ -48,8 +49,9 @@ public class ReservationService {
     private final SiteRepository siteRepository;
     private final UserRepository userRepository;
     private final PaymentRepository paymentRepository;
-    private final TossPaymentClient tossPaymentClient;
     private final TimeDealRepository timeDealRepository;
+
+    private final PaymentCancelService paymentCancelService;
     private final ChatService chatService;
 
     // 일반 예약 생성
@@ -128,8 +130,14 @@ public class ReservationService {
         Payment payment = paymentRepository.findByReservation_IdAndStatus(reservationId, PaymentStatus.DONE)
                 .orElseThrow(() -> new CustomException(ErrorCode.PAYMENT_NOT_FOUND));
 
-        // 토스 결제 취소 API 호출 (트랜잭션 밖에서 실행)
-        cancelPaymentOutsideTransaction(payment);
+        /*
+         * 외부 결제 API 호출은 별도 Bean을 통해 수행한다.
+         *
+         * 같은 ReservationService 내부 메서드를 호출하면
+         * Spring Proxy를 거치지 않아 NOT_SUPPORTED가 적용되지 않으므로
+         * PaymentCancelService로 분리한다.
+         */
+        paymentCancelService.cancel(payment.getPaymentKey());
 
         // 예약/결제 상태 변경 (트랜잭션 안에서 처리)
         payment.updateStatus(PaymentStatus.CANCELLED);
@@ -138,18 +146,6 @@ public class ReservationService {
         chatService.closeByReservationId(reservationId);
 
         return ReservationCancelResponse.of(reservation);
-    }
-
-    // 트랜잭션 밖에서 토스 API 호출
-    @Transactional(propagation = Propagation.NOT_SUPPORTED)
-    public void cancelPaymentOutsideTransaction(Payment payment) {
-        try {
-            tossPaymentClient.cancel(payment.getPaymentKey(), "사용자 예약 취소");
-        } catch (Exception e) {
-            log.error("토스 결제 취소 실패 - paymentKey: {}, error: {}",
-                    payment.getPaymentKey(), e.getMessage());
-            throw new CustomException(ErrorCode.INTERNAL_SERVER_ERROR);
-        }
     }
 
     /**
