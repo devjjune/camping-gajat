@@ -39,6 +39,8 @@ import java.time.temporal.ChronoUnit;
 import java.util.List;
 import java.util.UUID;
 
+import static com.back.ovengers.domain.reservation.entity.QReservation.reservation;
+
 @Service
 @RequiredArgsConstructor
 @Transactional
@@ -51,6 +53,7 @@ public class ReservationService {
     private final PaymentRepository paymentRepository;
     private final TimeDealRepository timeDealRepository;
 
+    private final ReservationCancelTransactionService reservationCancelTransactionService;
     private final PaymentCancelService paymentCancelService;
     private final ChatService chatService;
 
@@ -116,36 +119,29 @@ public class ReservationService {
     // 예약 취소
     public ReservationCancelResponse cancelReservation(Long reservationId, Long userId) {
 
-        Reservation reservation = reservationRepository.findByIdWithLock(reservationId)
-                .orElseThrow(() -> new CustomException(ErrorCode.RESERVATION_NOT_FOUND));
+        com.back.ovengers.domain.reservation.dto.ReservationCancelPrepareResult prepared  = reservationCancelTransactionService.prepareCancel(
+                reservationId,
+                userId
+        );
 
-        validateReservationOwner(reservation, userId);
-
-        // 취소 가능 상태 확인
-        if (reservation.getStatus() != ReservationStatus.CONFIRMED) {
-            throw new CustomException(ErrorCode.RESERVATION_CANNOT_BE_CANCELLED);
+        try {
+            /*
+             * 외부 결제 API 호출 전에 prepareCancel 트랜잭션을 종료하여
+             * 비관적 락을 해제한다.
+             *
+             * Toss 호출은 DB 트랜잭션 밖에서 수행하고,
+             * 성공 후 별도의 트랜잭션에서 취소 상태를 확정한다.
+             */
+            paymentCancelService.cancel(prepared.paymentKey());
+        } catch (Exception e) {
+            reservationCancelTransactionService.releaseCancel(prepared.paymentId());
+            throw e;
         }
 
-        // DONE 상태 결제 조회
-        Payment payment = paymentRepository.findByReservation_IdAndStatus(reservationId, PaymentStatus.DONE)
-                .orElseThrow(() -> new CustomException(ErrorCode.PAYMENT_NOT_FOUND));
-
-        /*
-         * 외부 결제 API 호출은 별도 Bean을 통해 수행한다.
-         *
-         * 같은 ReservationService 내부 메서드를 호출하면
-         * Spring Proxy를 거치지 않아 NOT_SUPPORTED가 적용되지 않으므로
-         * PaymentCancelService로 분리한다.
-         */
-        paymentCancelService.cancel(payment.getPaymentKey());
-
-        // 예약/결제 상태 변경 (트랜잭션 안에서 처리)
-        payment.updateStatus(PaymentStatus.CANCELLED);
-        reservation.updateStatus(ReservationStatus.CANCELLED);
-
-        chatService.closeByReservationId(reservationId);
-
-        return ReservationCancelResponse.of(reservation);
+        return reservationCancelTransactionService.completeCancel(
+                reservationId,
+                prepared.paymentId()
+        );
     }
 
     /**
