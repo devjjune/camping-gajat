@@ -15,6 +15,8 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.util.List;
+
 @Service
 @RequiredArgsConstructor
 public class ReservationCancelTransactionService {
@@ -36,10 +38,31 @@ public class ReservationCancelTransactionService {
             throw new CustomException(ErrorCode.RESERVATION_CANNOT_BE_CANCELLED);
         }
 
-        // DONE 상태 결제 조회
-        Payment payment = paymentRepository.findByReservation_IdAndStatus(reservationId, PaymentStatus.DONE)
-                .orElseThrow(() -> new CustomException(ErrorCode.PAYMENT_NOT_FOUND));
+        // 해당 예약에 생성된 모든 결제 조회
+        List<Payment> payments =
+                paymentRepository.findAllByReservation_Id(reservationId);
 
+        // 이미 취소가 진행 중인 결제가 있는지 확인
+        boolean cancelInProgress = payments.stream()
+                .anyMatch(payment ->
+                        payment.getStatus() == PaymentStatus.CANCEL_IN_PROGRESS
+                );
+
+        if (cancelInProgress) {
+            throw new CustomException(
+                    ErrorCode.PAYMENT_CANCEL_IN_PROGRESS
+            );
+        }
+
+        // 실제 결제가 완료된 DONE 상태 결제 조회
+        Payment payment = payments.stream()
+                .filter(p -> p.getStatus() == PaymentStatus.DONE)
+                .findFirst()
+                .orElseThrow(() ->
+                        new CustomException(ErrorCode.PAYMENT_NOT_FOUND)
+                );
+
+        // 취소 처리 권한 선점
         payment.updateStatus(PaymentStatus.CANCEL_IN_PROGRESS);
 
         return new ReservationCancelPrepareResult(

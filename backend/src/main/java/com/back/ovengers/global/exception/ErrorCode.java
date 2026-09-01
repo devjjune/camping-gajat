@@ -259,6 +259,10 @@ public enum ErrorCode {
             HttpStatus.CONFLICT,
             "현재 결제 상태에서는 요청을 처리할 수 없습니다."
     ),
+    PAYMENT_CANCEL_IN_PROGRESS(
+            HttpStatus.CONFLICT,
+            "결제 취소가 이미 진행 중입니다."
+    ),
 
     // 관리자
     INVALID_CAMPING_ID(
