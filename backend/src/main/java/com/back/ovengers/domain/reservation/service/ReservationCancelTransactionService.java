@@ -65,6 +65,10 @@ public class ReservationCancelTransactionService {
                         new CustomException(ErrorCode.PAYMENT_NOT_FOUND)
                 );
 
+        if (payment.getStatus() != PaymentStatus.CANCEL_IN_PROGRESS) {
+            throw new CustomException(ErrorCode.INVALID_PAYMENT_STATUS);
+        }
+
         payment.updateStatus(PaymentStatus.CANCELLED);
         reservation.updateStatus(ReservationStatus.CANCELLED);
 

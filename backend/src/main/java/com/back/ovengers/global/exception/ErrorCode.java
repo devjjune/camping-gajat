@@ -257,7 +257,7 @@ public enum ErrorCode {
     ),
     INVALID_PAYMENT_STATUS(
             HttpStatus.CONFLICT,
-            "처리할 수 없는 결제 상태입니다."
+            "현재 결제 상태에서는 요청을 처리할 수 없습니다."
     ),
 
     // 관리자
