@@ -39,6 +39,7 @@ import java.util.UUID;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.BDDMockito.willDoNothing;
+import static org.mockito.BDDMockito.willThrow;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
@@ -64,6 +65,7 @@ class ReservationCancelTest {
     private User user;
     private Reservation reservation;
     private String accessToken;
+    private Payment payment;
 
     @BeforeEach
     void setUp() {
@@ -119,7 +121,7 @@ class ReservationCancelTest {
                 .status(ReservationStatus.CONFIRMED)
                 .build());
 
-        paymentRepository.save(Payment.builder()
+        payment = paymentRepository.save(Payment.builder()
                 .reservation(reservation)
                 .orderId("ORD-" + UUID.randomUUID())
                 .paymentKey("test_payment_key")
@@ -160,6 +162,19 @@ class ReservationCancelTest {
                 .andExpect(jsonPath("$.message").value("예약이 취소되었습니다."))
                 .andExpect(jsonPath("$.data.status").value("CANCELLED"))
                 .andExpect(jsonPath("$.data.rsvNum").value(reservation.getRsvNum()));
+
+        Reservation cancelledReservation =
+                reservationRepository.findById(reservation.getId())
+                        .orElseThrow();
+
+        assertThat(cancelledReservation.getStatus())
+                .isEqualTo(ReservationStatus.CANCELLED);
+
+        Payment result = paymentRepository.findById(payment.getId())
+                .orElseThrow();
+
+        assertThat(result.getStatus())
+                .isEqualTo(PaymentStatus.CANCELLED);
 
         assertThat(chatRoomRepository.findByReservationIdAndTypeAndStatus(
                 reservation.getId(),
@@ -221,5 +236,52 @@ class ReservationCancelTest {
                         .cookie(new MockCookie("accessToken", accessToken)))
                 .andExpect(status().isConflict())
                 .andExpect(jsonPath("$.data").value("취소할 수 없는 예약 상태입니다."));
+    }
+
+    @Test
+    @DisplayName("예약 취소 실패 - 취소 불가 상태 (CANCEL_IN_PROGRESS)")
+    void cancelReservationFail_cancelInProgress() throws Exception {
+
+        Payment payment = paymentRepository
+                .findByReservation_IdAndStatus(
+                        reservation.getId(),
+                        PaymentStatus.DONE
+                )
+                .orElseThrow();
+
+        payment.updateStatus(PaymentStatus.CANCEL_IN_PROGRESS);
+        paymentRepository.save(payment);
+
+        mockMvc.perform(patch("/api/reservations/{id}/cancel", reservation.getId())
+                        .cookie(new MockCookie("accessToken", accessToken)))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.data")
+                        .value("결제 취소가 이미 진행 중입니다."));
+    }
+
+    @Test
+    @DisplayName("예약 취소 실패 - Toss 취소 실패 시 결제 상태를 DONE으로 복구")
+    void cancelReservationFail_tossCancelFailed() throws Exception {
+
+        willThrow(new RuntimeException("Toss cancel failed"))
+                .given(tossPaymentClient)
+                .cancel(anyString(), anyString());
+
+        mockMvc.perform(patch("/api/reservations/{id}/cancel", reservation.getId())
+                        .cookie(new MockCookie("accessToken", accessToken)))
+                .andExpect(status().isInternalServerError());
+
+        Payment result = paymentRepository.findById(payment.getId())
+                .orElseThrow();
+
+        assertThat(result.getStatus())
+                .isEqualTo(PaymentStatus.DONE);
+
+        Reservation resultReservation =
+                reservationRepository.findById(reservation.getId())
+                        .orElseThrow();
+
+        assertThat(resultReservation.getStatus())
+                .isEqualTo(ReservationStatus.CONFIRMED);
     }
 }
