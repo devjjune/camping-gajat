@@ -43,7 +43,6 @@ import static com.back.ovengers.domain.reservation.entity.QReservation.reservati
 
 @Service
 @RequiredArgsConstructor
-@Transactional
 @Slf4j
 public class ReservationService {
 
@@ -58,6 +57,7 @@ public class ReservationService {
     private final ChatService chatService;
 
     // 일반 예약 생성
+    @Transactional
     public ReservationResponse create(Long userId, ReservationRequest request) {
 
         User user = getUser(userId);
@@ -153,6 +153,7 @@ public class ReservationService {
      * → 트랜잭션 롤백
      * → soldCount 증가도 함께 롤백
      */
+    @Transactional
     public ReservationResponse createTimeDealReservation(
             Long userId,
             Long timeDealId,
