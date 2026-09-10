@@ -88,14 +88,21 @@ public class ReservationCancelTransactionService {
                         new CustomException(ErrorCode.PAYMENT_NOT_FOUND)
                 );
 
+        /*
+         * 재시도 과정에서 이전 completeCancel()이 이미 성공한 경우
+         * 동일 요청을 다시 성공으로 처리한다.
+         */
+        if (payment.getStatus() == PaymentStatus.CANCELLED
+                && reservation.getStatus() == ReservationStatus.CANCELLED) {
+            return ReservationCancelResponse.of(reservation);
+        }
+
         if (payment.getStatus() != PaymentStatus.CANCEL_IN_PROGRESS) {
             throw new CustomException(ErrorCode.INVALID_PAYMENT_STATUS);
         }
 
         payment.updateStatus(PaymentStatus.CANCELLED);
         reservation.updateStatus(ReservationStatus.CANCELLED);
-
-        chatService.closeByReservationId(reservationId);
 
         return ReservationCancelResponse.of(reservation);
     }

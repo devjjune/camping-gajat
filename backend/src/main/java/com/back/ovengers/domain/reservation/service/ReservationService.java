@@ -56,6 +56,8 @@ public class ReservationService {
     private final PaymentCancelService paymentCancelService;
     private final ChatService chatService;
 
+    private static final int COMPLETE_CANCEL_MAX_ATTEMPTS = 3;
+
     // 일반 예약 생성
     @Transactional
     public ReservationResponse create(Long userId, ReservationRequest request) {
@@ -138,10 +140,25 @@ public class ReservationService {
             throw e;
         }
 
-        return reservationCancelTransactionService.completeCancel(
+        // Toss는 이미 성공한 상태
+        // → 여기서 실패하더라도 DONE으로 되돌리면 안 됨
+        ReservationCancelResponse response = completeCancelWithRetry(
                 reservationId,
                 prepared.paymentId()
         );
+
+        // 채팅 종료 실패가 예약/결제 취소를 롤백시키지 않도록 별도 처리
+        try {
+            chatService.closeByReservationId(reservationId);
+        } catch (Exception e) {
+            log.error(
+                    "예약 취소 후 채팅방 종료 실패 - reservationId: {}",
+                    reservationId,
+                    e
+            );
+        }
+
+        return response;
     }
 
     /**
@@ -445,5 +462,43 @@ public class ReservationService {
                 .toString()
                 .substring(0, 8)
                 .toUpperCase();
+    }
+
+    private ReservationCancelResponse completeCancelWithRetry(
+            Long reservationId,
+            Long paymentId
+    ) {
+
+        RuntimeException lastException = null;
+
+        for (int attempt = 1; attempt <= COMPLETE_CANCEL_MAX_ATTEMPTS; attempt++) {
+            try {
+                return reservationCancelTransactionService.completeCancel(
+                        reservationId,
+                        paymentId
+                );
+
+            } catch (RuntimeException e) {
+                lastException = e;
+
+                log.warn(
+                        "예약 취소 DB 반영 실패 - reservationId: {}, paymentId: {}, attempt: {}/{}",
+                        reservationId,
+                        paymentId,
+                        attempt,
+                        COMPLETE_CANCEL_MAX_ATTEMPTS,
+                        e
+                );
+            }
+        }
+
+        log.error(
+                "예약 취소 DB 반영 최종 실패 - reservationId: {}, paymentId: {}",
+                reservationId,
+                paymentId,
+                lastException
+        );
+
+        throw lastException;
     }
 }
